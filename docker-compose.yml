@@ -1,0 +1,56 @@
+# Housing Opportunity Finder - full stack.
+#   docker compose up -d --build                  start gateway + API  -> http://localhost:8080
+#   docker compose --profile jobs run --rm pipeline verify   check every data source (1 min)
+#   docker compose --profile jobs run --rm pipeline          download + process real data
+#   docker compose --profile jobs run --rm pipeline demo     load synthetic demo data
+#   docker compose --profile scheduler up -d scheduler       keep all sources current (daily check)
+
+x-backend: &backend
+  build: ./backend
+  image: housing-finder-backend:latest
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    DATA_DIR: /data
+  volumes:
+    - housing-data:/data
+
+services:
+  api:
+    <<: *backend
+    restart: unless-stopped
+    expose: ["8000"]
+
+  web:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    image: housing-finder-gateway:latest
+    env_file:
+    - path: .env
+      required: false
+    environment:
+      API_UPSTREAM: api:8000
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  pipeline:
+    <<: *backend
+    profiles: ["jobs"]
+    entrypoint: ["sh", "run_pipeline.sh"]
+    command: ["full"]
+
+  scheduler:
+    <<: *backend
+    profiles: ["scheduler"]
+    entrypoint: ["sh", "run_pipeline.sh"]
+    command: ["schedule"]
+    restart: unless-stopped
+
+volumes:
+  housing-data:

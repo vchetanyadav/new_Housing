@@ -1,0 +1,56 @@
+# Gateway: serves the frontend, proxies /api to the backend, and applies the cross-cutting
+# rules every request should get (rate limits, compression, security headers, caching, login).
+
+limit_req_zone $binary_remote_addr zone=api_rate:10m rate=20r/s;
+proxy_cache_path /var/cache/nginx/layers levels=1:2 keys_zone=layers:10m max_size=200m inactive=30m use_temp_path=off;
+
+upstream backend {
+    server ${API_UPSTREAM};
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    server_tokens off;
+    client_max_body_size 1m;
+
+    gzip on;
+    gzip_min_length 1000;
+    gzip_types application/json application/geo+json application/javascript text/css text/csv text/markdown image/svg+xml;
+
+    include /etc/nginx/snippets/security-headers.conf;
+    include /etc/nginx/snippets/auth.conf;
+
+    # Health check stays open so monitoring works when login is switched on.
+    location = /api/health {
+        auth_basic off;
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+    }
+
+    # Map layers rarely change: cache them at the gateway for 10 minutes.
+    location /api/layers/ {
+        limit_req zone=api_rate burst=40 nodelay;
+        proxy_cache layers;
+        proxy_cache_valid 200 10m;
+        proxy_cache_use_stale error timeout updating;
+        include /etc/nginx/snippets/proxy.conf;
+    }
+
+    location /api/ {
+        limit_req zone=api_rate burst=40 nodelay;
+        limit_req_status 429;
+        include /etc/nginx/snippets/proxy.conf;
+    }
+
+    location /vendor/ {
+        root /usr/share/nginx/html;
+        expires 30d;
+    }
+
+    location / {
+        root /usr/share/nginx/html;
+        try_files $uri $uri/ /index.html;
+        expires 5m;
+    }
+}

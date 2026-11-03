@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Housing Opportunity Finder</title>
+  <meta name="description" content="Find under-used residential lots near train stations and test rezoning scenarios.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="vendor/maplibre/maplibre-gl.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="rail" aria-label="Scenario">
+    <header class="brand">
+      <h1>Housing Opportunity Finder</h1>
+      <p class="area" id="area">Loading study area…</p>
+    </header>
+
+    <section class="question" aria-labelledby="q-title">
+      <h2 id="q-title" class="visually-hidden">Scenario</h2>
+      <p class="sentence" id="sentence">…</p>
+
+      <div class="controls">
+        <label class="ctl">
+          <span class="ctl-label">Distance to a station <output id="o-radius"></output></span>
+          <input type="range" id="radius_m" min="200" max="1600" step="100">
+        </label>
+        <label class="ctl">
+          <span class="ctl-label">Smallest lot <output id="o-minlot"></output></span>
+          <input type="range" id="min_lot_m2" min="200" max="1500" step="50">
+        </label>
+        <label class="ctl">
+          <span class="ctl-label">Narrowest lot <output id="o-width"></output></span>
+          <input type="range" id="min_width_m" min="0" max="25" step="1">
+          <span class="hint">Measured across the lot's shorter side, roughly its street frontage</span>
+        </label>
+        <label class="ctl">
+          <span class="ctl-label">Already built on, at most <output id="o-cov"></output></span>
+          <input type="range" id="max_coverage" min="0.05" max="0.8" step="0.05">
+        </label>
+        <label class="ctl">
+          <span class="ctl-label">Target density <output id="o-dph"></output></span>
+          <input type="range" id="dwellings_per_ha" min="30" max="250" step="10">
+          <span class="hint">40 dual occupancy, 80 townhouses, 150+ low-rise apartments</span>
+        </label>
+
+        <fieldset class="checks">
+          <legend>Zones and protections</legend>
+          <label><input type="checkbox" name="zone" value="NRZ" checked> Neighbourhood Residential</label>
+          <label><input type="checkbox" name="zone" value="GRZ" checked> General Residential</label>
+          <label><input type="checkbox" id="exclude_overlays" checked> Leave out heritage, flood, contamination, acquisition and bushfire overlays</label>
+          <label><input type="checkbox" id="exclude_review_overlays"> Also leave out lots with overlays that need review (character, design, vegetation, landscape)</label>
+          <label><input type="checkbox" id="use_walking" checked> Measure along walking paths</label>
+          <label><input type="checkbox" id="exclude_recent_change" checked> Leave out lots the satellite shows being built on</label>
+        </fieldset>
+
+        <fieldset class="needs">
+          <legend>Everyday needs</legend>
+          <label class="ctl">
+            <span class="ctl-label">Counts as within reach <output id="o-svc"></output></span>
+            <input type="range" id="services_walk_m" min="400" max="2000" step="100">
+            <span class="hint">Supermarket, pharmacy, GP, school, childcare and park. 800 m is roughly Plan Melbourne's 20-minute neighbourhood.</span>
+          </label>
+          <label class="ctl">
+            <span class="ctl-label">Must have a supermarket within <output id="o-super"></output></span>
+            <input type="range" id="max_supermarket_m" min="0" max="2000" step="100">
+          </label>
+        </fieldset>
+
+        <details class="weights">
+          <summary>How lots are ranked</summary>
+          <label class="ctl small"><span class="ctl-label">Close to a station <output id="o-wp"></output></span><input type="range" id="w_proximity" min="0" max="1" step="0.05"></label>
+          <label class="ctl small"><span class="ctl-label">Large lot <output id="o-wl"></output></span><input type="range" id="w_lot_size" min="0" max="1" step="0.05"></label>
+          <label class="ctl small"><span class="ctl-label">Unbuilt land <output id="o-wo"></output></span><input type="range" id="w_open_land" min="0" max="1" step="0.05"></label>
+          <label class="ctl small"><span class="ctl-label">Rental pressure nearby <output id="o-wd"></output></span><input type="range" id="w_demand" min="0" max="1" step="0.05"></label>
+          <label class="ctl small"><span class="ctl-label">Everyday needs within reach <output id="o-ws"></output></span><input type="range" id="w_services" min="0" max="1" step="0.05"></label>
+          <label class="ctl small"><span class="ctl-label">Leave out lots greener than <output id="o-green"></output></span><input type="range" id="max_green_frac" min="0.3" max="1" step="0.05"></label>
+        </details>
+      </div>
+    </section>
+
+    <div class="warnings" id="warnings" role="status" hidden></div>
+
+    <section class="answer" aria-live="polite" aria-busy="false" id="answer">
+      <p class="homes"><span id="r-homes">–</span><span class="homes-unit">more homes could fit, in theory</span></p>
+      <dl class="facts">
+        <div><dt>Lots that qualify</dt><dd id="r-lots">–</dd></div>
+        <div><dt>New residents</dt><dd id="r-people">–</dd></div>
+        <div><dt>Unbuilt land on those lots</dt><dd id="r-open">–</dd></div>
+        <div><dt>Need planner review</dt><dd id="r-review">–</dd></div>
+      </dl>
+    </section>
+
+    <section class="detail">
+      <div class="tabs" role="tablist" aria-label="Results detail">
+        <button role="tab" aria-selected="true" aria-controls="t-stations" id="tab-stations">Stations</button>
+        <button role="tab" aria-selected="false" aria-controls="t-excl" id="tab-excl">Left out</button>
+        <button role="tab" aria-selected="false" aria-controls="t-needs" id="tab-needs">Daily needs</button>
+        <button role="tab" aria-selected="false" aria-controls="t-infra" id="tab-infra">Utilities</button>
+      </div>
+      <div role="tabpanel" id="t-stations" aria-labelledby="tab-stations"></div>
+      <div role="tabpanel" id="t-excl" aria-labelledby="tab-excl" hidden></div>
+      <div role="tabpanel" id="t-needs" aria-labelledby="tab-needs" hidden></div>
+      <div role="tabpanel" id="t-infra" aria-labelledby="tab-infra" hidden></div>
+    </section>
+
+    <section class="downloads">
+      <h2>Download this scenario</h2>
+      <div class="dl-row">
+        <button data-export="csv">Lots (CSV)</button>
+        <button data-export="geojson">Lots (GeoJSON)</button>
+        <button data-export="brief">Brief</button>
+      </div>
+    </section>
+
+    <section class="datastatus">
+      <details id="ds">
+        <summary><span class="ds-dot" id="ds-dot"></span> <span id="ds-summary">Data sources</span></summary>
+        <div id="ds-list"></div>
+      </details>
+    </section>
+
+    <footer class="sources" id="sources"></footer>
+  </aside>
+
+  <main class="map-wrap">
+    <div id="map" role="region" aria-label="Map of qualifying lots"></div>
+
+    <div class="search" role="search">
+      <label for="q" class="visually-hidden">Find a lot by address or lot-and-plan number</label>
+      <input id="q" type="search" autocomplete="off" placeholder="Find an address or lot (e.g. 12\LP12345)"
+             aria-controls="q-results" aria-expanded="false">
+      <ul id="q-results" role="listbox" hidden></ul>
+    </div>
+
+    <div class="layers" role="group" aria-label="Map layers">
+      <div class="seg" role="radiogroup" aria-label="Background">
+        <label><input type="radio" name="base" value="street" checked> Street</label>
+        <label><input type="radio" name="base" value="aerial"> Aerial</label>
+      </div>
+      <label class="layer"><input type="checkbox" id="lyr-sat"> <span id="lyr-sat-label">Latest satellite pass</span></label>
+      <label class="layer"><input type="checkbox" id="lyr-changed"> <span class="swatch changed"></span> Changed in the last year</label>
+      <span class="layer key"><span class="swatch review"></span> Lot needs planner review</span>
+      <div class="svc-layers" id="svc-layers"></div>
+      <div class="legend" aria-hidden="true">
+        <span>Lower rank</span><span class="ramp"></span><span>Higher</span>
+      </div>
+    </div>
+
+    <aside class="inspector" id="inspector" hidden aria-labelledby="ins-title">
+      <button class="close" id="ins-close" aria-label="Close lot details">×</button>
+      <h2 id="ins-title">Lot</h2>
+      <p class="ins-sub" id="ins-sub"></p>
+      <p class="verdict" id="ins-verdict"></p>
+      <p class="review-note" id="ins-review" hidden></p>
+      <dl class="evidence" id="ins-evidence"></dl>
+      <div class="svc" id="ins-svc"></div>
+      <div class="parts" id="ins-parts"></div>
+      <p class="note">Check planning controls in VicPlan before relying on any result.</p>
+    </aside>
+
+    <div class="status" id="status" role="status" hidden></div>
+  </main>
+</div>
+<script src="vendor/maplibre/maplibre-gl.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
