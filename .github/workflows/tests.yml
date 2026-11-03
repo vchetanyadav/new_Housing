@@ -1,0 +1,39 @@
+# Runs on every push and pull request:
+#   1. the 42 automated tests (downloader, pipeline, services, addresses, API) on synthetic data
+#   2. a build of both Docker images, so a broken Dockerfile is caught before anyone deploys it
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: Install dependencies
+        run: "pip install --only-binary=:all: -r requirements-dev.txt"
+      - name: Run tests on synthetic data (no internet needed)
+        run: sh run_pipeline.sh test
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend and gateway images
+        run: docker compose build api web

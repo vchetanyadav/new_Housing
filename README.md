@@ -1,5 +1,7 @@
 # Housing Opportunity Finder
 
+[![tests](https://github.com/vchetanyadav/new_Housing/actions/workflows/tests.yml/badge.svg)](https://github.com/vchetanyadav/new_Housing/actions/workflows/tests.yml)
+
 Finds under-used residential lots within walking distance of Melbourne train stations, checks them against
 live satellite imagery, and estimates how many homes a rezoning scenario could unlock and the extra demand
 on water, power and schools. Pilot council: Merri-bek.
@@ -112,7 +114,7 @@ To refresh once by hand: `docker compose --profile jobs run --rm pipeline refres
 ```bash
 docker compose --profile jobs run --rm pipeline test
 ```
-Runs 39 tests (downloader, pipeline, services, addresses and API) in a separate scratch folder, so it never touches the data the site is serving.
+Runs 42 tests (downloader, pipeline, services, addresses and API) in a separate scratch folder, so it never touches the data the site is serving.
 
 ### Step 8 — Optional: require a login
 In `.env` set:
@@ -219,3 +221,7 @@ Theoretical capacity, not a forecast (ownership, consolidation, feasibility, set
 not modelled). Sentinel-2 pixels are 10 m, so lot-level satellite measures are indicative. OpenStreetMap
 footprints may be incomplete. Census data is from 2021. Infrastructure rates in `backend/src/config.py` are
 placeholders until confirmed with the water corporation, electricity distributor and Department of Education.
+
+## Licence
+
+Code: MIT (see `LICENSE`). Downloaded data stays under its publishers' licences listed above.
